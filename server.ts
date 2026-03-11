@@ -96,7 +96,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret";
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "fallback-secret") {
   console.warn("WARNING: Using fallback JWT_SECRET in production. Set JWT_SECRET in environment variables.");
 }
-const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const TMDB_API_KEY = process.env.VITE_TMDB_API_KEY || process.env.TMDB_API_KEY;
 
 // Simple In-Memory Cache for TMDB
 const cache = new Map<string, { data: any; timestamp: number }>();
@@ -198,12 +198,26 @@ app.patch("/api/auth/profile", authenticate, (req: any, res) => {
 
 // TMDB Proxy
 app.get("/api/tmdb/*", async (req, res) => {
-  const endpoint = req.params[0];
+  let endpoint = req.params[0];
   if (!TMDB_API_KEY) {
     return res.status(500).json({ error: "TMDB API Key is not configured in environment variables." });
   }
 
   const queryParams = new URLSearchParams(req.query as any);
+  
+  // Handle the "clean" routes I introduced for Vercel
+  if (endpoint === "trending") {
+    const timeWindow = queryParams.get("timeWindow") || "week";
+    endpoint = `trending/movie/${timeWindow}`;
+    queryParams.delete("timeWindow");
+  } else if (endpoint === "popular") {
+    endpoint = "movie/popular";
+  } else if (endpoint === "top-rated") {
+    endpoint = "movie/top_rated";
+  } else if (endpoint === "upcoming") {
+    endpoint = "movie/upcoming";
+  }
+
   queryParams.set("api_key", TMDB_API_KEY);
   
   const cacheKey = `${endpoint}?${queryParams.toString()}`;

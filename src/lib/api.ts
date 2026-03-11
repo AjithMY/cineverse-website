@@ -4,8 +4,14 @@ const API_BASE = "/api";
 
 const apiFetch = async (url: string, options?: RequestInit) => {
   const res = await fetch(url, options);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    throw new Error("Invalid JSON response from server");
+  }
+  if (!res.ok) throw new Error(data.error || data.status_message || "Something went wrong");
   return data;
 };
 
@@ -41,16 +47,16 @@ export const api = {
 
   // TMDB Proxy
   async getTrending(timeWindow: "day" | "week" = "week") {
-    return apiFetch(`${API_BASE}/tmdb/trending/movie/${timeWindow}`);
+    return apiFetch(`${API_BASE}/tmdb/trending?timeWindow=${timeWindow}`);
   },
   async getPopular() {
-    return apiFetch(`${API_BASE}/tmdb/movie/popular`);
+    return apiFetch(`${API_BASE}/tmdb/popular`);
   },
   async getTopRated() {
-    return apiFetch(`${API_BASE}/tmdb/movie/top_rated`);
+    return apiFetch(`${API_BASE}/tmdb/top-rated`);
   },
   async getUpcoming() {
-    return apiFetch(`${API_BASE}/tmdb/movie/upcoming`);
+    return apiFetch(`${API_BASE}/tmdb/upcoming`);
   },
   async getHollywoodMovies() {
     return apiFetch(`${API_BASE}/tmdb/discover/movie?with_original_language=en&sort_by=popularity.desc`);
