@@ -7,13 +7,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'VITE_TMDB_API_KEY is not configured' });
   }
 
-  const { page = '1' } = req.query;
-  
+  const queryParams = new URLSearchParams();
+  Object.keys(req.query).forEach(key => {
+    queryParams.set(key, req.query[key] as string);
+  });
+  queryParams.set('api_key', apiKey);
+
   try {
-    const response = await fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${apiKey}&page=${page}`);
+    const url = `https://api.themoviedb.org/3/discover/movie?${queryParams.toString()}`;
+    const response = await fetch(url);
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch upcoming movies' });
+    res.status(500).json({ error: 'Failed to fetch from TMDB Discover' });
   }
 }

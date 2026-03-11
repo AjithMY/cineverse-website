@@ -59,10 +59,10 @@ export const api = {
     return apiFetch(`${API_BASE}/tmdb/upcoming`);
   },
   async getHollywoodMovies() {
-    return apiFetch(`${API_BASE}/tmdb/discover/movie?with_original_language=en&sort_by=popularity.desc`);
+    return apiFetch(`${API_BASE}/tmdb/discover?with_original_language=en&sort_by=popularity.desc`);
   },
   async getIndianMovies() {
-    return apiFetch(`${API_BASE}/tmdb/discover/movie?with_origin_country=IN&sort_by=popularity.desc`);
+    return apiFetch(`${API_BASE}/tmdb/discover?with_origin_country=IN&sort_by=popularity.desc`);
   },
   async getMovieDetails(id: string) {
     return apiFetch(`${API_BASE}/tmdb/movie/${id}`);

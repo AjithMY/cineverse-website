@@ -216,6 +216,8 @@ app.get("/api/tmdb/*", async (req, res) => {
     endpoint = "movie/top_rated";
   } else if (endpoint === "upcoming") {
     endpoint = "movie/upcoming";
+  } else if (endpoint === "discover") {
+    endpoint = "discover/movie";
   }
 
   queryParams.set("api_key", TMDB_API_KEY);
