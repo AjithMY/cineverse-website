@@ -1,0 +1,5 @@
+{
+  "name": "CineVerse",
+  "description": "A modern movie exploration platform with reviews, ratings, and watchlists powered by TMDB.",
+  "requestFramePermissions": ["camera"]
+}

@@ -1,0 +1,112 @@
+import { User, Movie, Cast, Video, Review, WatchlistItem } from "../types";
+
+const API_BASE = "/api";
+
+const apiFetch = async (url: string, options?: RequestInit) => {
+  const res = await fetch(url, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+};
+
+export const api = {
+  // Auth
+  async login(credentials: any) {
+    return apiFetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credentials),
+    });
+  },
+  async register(data: any) {
+    return apiFetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async logout() {
+    return apiFetch(`${API_BASE}/auth/logout`, { method: "POST" });
+  },
+  async getMe() {
+    return apiFetch(`${API_BASE}/auth/me`);
+  },
+  async updateProfile(data: { name: string; bio?: string; photoURL?: string }) {
+    return apiFetch(`${API_BASE}/auth/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  // TMDB Proxy
+  async getTrending(timeWindow: "day" | "week" = "week") {
+    return apiFetch(`${API_BASE}/tmdb/trending/movie/${timeWindow}`);
+  },
+  async getPopular() {
+    return apiFetch(`${API_BASE}/tmdb/movie/popular`);
+  },
+  async getTopRated() {
+    return apiFetch(`${API_BASE}/tmdb/movie/top_rated`);
+  },
+  async getUpcoming() {
+    return apiFetch(`${API_BASE}/tmdb/movie/upcoming`);
+  },
+  async getHollywoodMovies() {
+    return apiFetch(`${API_BASE}/tmdb/discover/movie?with_original_language=en&sort_by=popularity.desc`);
+  },
+  async getIndianMovies() {
+    return apiFetch(`${API_BASE}/tmdb/discover/movie?with_origin_country=IN&sort_by=popularity.desc`);
+  },
+  async getMovieDetails(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/movie/${id}`);
+  },
+  async getMovieCredits(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/movie/${id}/credits`);
+  },
+  async getMovieVideos(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/movie/${id}/videos`);
+  },
+  async searchMovies(query: string) {
+    return apiFetch(`${API_BASE}/tmdb/search/movie?query=${encodeURIComponent(query)}`);
+  },
+  async getPersonDetails(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/person/${id}`);
+  },
+  async getPersonMovieCredits(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/person/${id}/movie_credits`);
+  },
+  async getWatchProviders(id: string) {
+    return apiFetch(`${API_BASE}/tmdb/movie/${id}/watch/providers`);
+  },
+
+  // Reviews
+  async getReviews(movieId: number) {
+    return apiFetch(`${API_BASE}/reviews/${movieId}`);
+  },
+  async postReview(data: { movieId: number; rating: number; review: string }) {
+    return apiFetch(`${API_BASE}/reviews`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async deleteReview(id: number) {
+    return apiFetch(`${API_BASE}/reviews/${id}`, { method: "DELETE" });
+  },
+
+  // Watchlist
+  async getWatchlist() {
+    return apiFetch(`${API_BASE}/watchlist`);
+  },
+  async addToWatchlist(data: { movieId: number; movieTitle: string; moviePoster: string }) {
+    return apiFetch(`${API_BASE}/watchlist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async removeFromWatchlist(movieId: number) {
+    return apiFetch(`${API_BASE}/watchlist/${movieId}`, { method: "DELETE" });
+  },
+};
