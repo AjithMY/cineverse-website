@@ -9,7 +9,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&append_to_response=videos,images`;
+    const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}`;
     const response = await fetch(url);
     const data = await response.json();
     res.status(response.status).json(data);
