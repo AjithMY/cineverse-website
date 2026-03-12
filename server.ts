@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
@@ -12,45 +11,97 @@ import { rateLimit } from "express-rate-limit";
 
 dotenv.config();
 
+const TMDB_API_KEY = process.env.VITE_TMDB_API_KEY || process.env.TMDB_API_KEY;
+const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret";
+
 console.log('--- CINEVERSE SERVER STARTING ---');
 console.log('NODE_ENV:', process.env.NODE_ENV);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("cineverse.db");
+let db: any;
 
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE,
-    password TEXT,
-    name TEXT,
-    bio TEXT,
-    photoURL TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS reviews (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    movieId INTEGER,
-    rating INTEGER,
-    review TEXT,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(userId) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS watchlist (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    movieId INTEGER,
-    movieTitle TEXT,
-    moviePoster TEXT,
-    FOREIGN KEY(userId) REFERENCES users(id),
-    UNIQUE(userId, movieId)
-  );
-`);
+async function getDb() {
+  if (db) return db;
+  
+  try {
+    const { default: Database } = await import("better-sqlite3");
+    
+    try {
+      db = new Database("cineverse.db");
+      // Initialize Database
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE,
+          password TEXT,
+          name TEXT,
+          bio TEXT,
+          photoURL TEXT
+        );
+        CREATE TABLE IF NOT EXISTS reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER,
+          movieId INTEGER,
+          rating INTEGER,
+          review TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(userId) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS watchlist (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER,
+          movieId INTEGER,
+          movieTitle TEXT,
+          moviePoster TEXT,
+          FOREIGN KEY(userId) REFERENCES users(id),
+          UNIQUE(userId, movieId)
+        );
+      `);
+    } catch (err) {
+      console.error("Failed to initialize file-based database:", err);
+      if (process.env.VERCEL) {
+        console.log("Falling back to in-memory database for Vercel environment");
+        db = new Database(":memory:");
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            password TEXT,
+            name TEXT,
+            bio TEXT,
+            photoURL TEXT
+          );
+          CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER,
+            movieId INTEGER,
+            rating INTEGER,
+            review TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(userId) REFERENCES users(id)
+          );
+          CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER,
+            movieId INTEGER,
+            movieTitle TEXT,
+            moviePoster TEXT,
+            FOREIGN KEY(userId) REFERENCES users(id),
+            UNIQUE(userId, movieId)
+          );
+        `);
+      } else {
+        throw err;
+      }
+    }
+  } catch (err) {
+    console.error("Critical: Failed to load better-sqlite3", err);
+    throw err;
+  }
+  return db;
+}
 
 export const app = express();
 const PORT = 3000;
@@ -178,11 +229,9 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api", apiLimiter);
 */
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret";
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "fallback-secret") {
   console.warn("WARNING: Using fallback JWT_SECRET in production. Set JWT_SECRET in environment variables.");
 }
-const TMDB_API_KEY = process.env.VITE_TMDB_API_KEY || process.env.TMDB_API_KEY;
 
 // Simple In-Memory Cache for TMDB
 const cache = new Map<string, { data: any; timestamp: number }>();
@@ -226,7 +275,8 @@ app.post("/api/auth/register", async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 12); // Increased salt rounds
 
   try {
-    const info = db.prepare("INSERT INTO users (email, password, name) VALUES (?, ?, ?)").run(email, hashedPassword, name);
+    const database = await getDb();
+    const info = database.prepare("INSERT INTO users (email, password, name) VALUES (?, ?, ?)").run(email, hashedPassword, name);
     const token = jwt.sign({ id: info.lastInsertRowid, email, name }, JWT_SECRET);
     res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
     res.json({ user: { id: info.lastInsertRowid, email, name } });
@@ -237,7 +287,8 @@ app.post("/api/auth/register", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
-  const user: any = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const database = await getDb();
+  const user: any = database.prepare("SELECT * FROM users WHERE email = ?").get(email);
 
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.status(401).json({ error: "Invalid credentials" });
@@ -253,24 +304,26 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/auth/me", (req, res) => {
+app.get("/api/auth/me", async (req, res) => {
   const token = req.cookies.token;
   if (!token) return res.json({ user: null });
 
   try {
     const decoded: any = jwt.verify(token, JWT_SECRET);
-    const user: any = db.prepare("SELECT id, email, name, bio, photoURL FROM users WHERE id = ?").get(decoded.id);
+    const database = await getDb();
+    const user: any = database.prepare("SELECT id, email, name, bio, photoURL FROM users WHERE id = ?").get(decoded.id);
     res.json({ user });
   } catch (err) {
     res.json({ user: null });
   }
 });
 
-app.patch("/api/auth/profile", authenticate, (req: any, res) => {
+app.patch("/api/auth/profile", authenticate, async (req: any, res) => {
   const { name, bio, photoURL } = req.body;
   try {
-    db.prepare("UPDATE users SET name = ?, bio = ?, photoURL = ? WHERE id = ?").run(name, bio, photoURL, req.user.id);
-    const user: any = db.prepare("SELECT id, email, name, bio, photoURL FROM users WHERE id = ?").get(req.user.id);
+    const database = await getDb();
+    database.prepare("UPDATE users SET name = ?, bio = ?, photoURL = ? WHERE id = ?").run(name, bio, photoURL, req.user.id);
+    const user: any = database.prepare("SELECT id, email, name, bio, photoURL FROM users WHERE id = ?").get(req.user.id);
     
     // Update token with new name if it changed
     const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET);
@@ -283,8 +336,9 @@ app.patch("/api/auth/profile", authenticate, (req: any, res) => {
 });
 
 // Reviews Routes
-app.get("/api/reviews/:movieId", (req, res) => {
-  const reviews = db.prepare(`
+app.get("/api/reviews/:movieId", async (req, res) => {
+  const database = await getDb();
+  const reviews = database.prepare(`
     SELECT reviews.*, users.name as userName 
     FROM reviews 
     JOIN users ON reviews.userId = users.id 
@@ -294,36 +348,41 @@ app.get("/api/reviews/:movieId", (req, res) => {
   res.json(reviews);
 });
 
-app.post("/api/reviews", authenticate, (req: any, res) => {
+app.post("/api/reviews", authenticate, async (req: any, res) => {
   const { movieId, rating, review } = req.body;
-  const info = db.prepare("INSERT INTO reviews (userId, movieId, rating, review) VALUES (?, ?, ?, ?)").run(req.user.id, movieId, rating, review);
+  const database = await getDb();
+  const info = database.prepare("INSERT INTO reviews (userId, movieId, rating, review) VALUES (?, ?, ?, ?)").run(req.user.id, movieId, rating, review);
   res.json({ id: info.lastInsertRowid });
 });
 
-app.delete("/api/reviews/:id", authenticate, (req: any, res) => {
-  const info = db.prepare("DELETE FROM reviews WHERE id = ? AND userId = ?").run(req.params.id, req.user.id);
+app.delete("/api/reviews/:id", authenticate, async (req: any, res) => {
+  const database = await getDb();
+  const info = database.prepare("DELETE FROM reviews WHERE id = ? AND userId = ?").run(req.params.id, req.user.id);
   if (info.changes === 0) return res.status(403).json({ error: "Unauthorized or not found" });
   res.json({ success: true });
 });
 
 // Watchlist Routes
-app.get("/api/watchlist", authenticate, (req: any, res) => {
-  const list = db.prepare("SELECT * FROM watchlist WHERE userId = ?").all(req.user.id);
+app.get("/api/watchlist", authenticate, async (req: any, res) => {
+  const database = await getDb();
+  const list = database.prepare("SELECT * FROM watchlist WHERE userId = ?").all(req.user.id);
   res.json(list);
 });
 
-app.post("/api/watchlist", authenticate, (req: any, res) => {
+app.post("/api/watchlist", authenticate, async (req: any, res) => {
   const { movieId, movieTitle, moviePoster } = req.body;
   try {
-    db.prepare("INSERT INTO watchlist (userId, movieId, movieTitle, moviePoster) VALUES (?, ?, ?, ?)").run(req.user.id, movieId, movieTitle, moviePoster);
+    const database = await getDb();
+    database.prepare("INSERT INTO watchlist (userId, movieId, movieTitle, moviePoster) VALUES (?, ?, ?, ?)").run(req.user.id, movieId, movieTitle, moviePoster);
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: "Already in watchlist" });
   }
 });
 
-app.delete("/api/watchlist/:movieId", authenticate, (req: any, res) => {
-  db.prepare("DELETE FROM watchlist WHERE userId = ? AND movieId = ?").run(req.user.id, req.params.movieId);
+app.delete("/api/watchlist/:movieId", authenticate, async (req: any, res) => {
+  const database = await getDb();
+  database.prepare("DELETE FROM watchlist WHERE userId = ? AND movieId = ?").run(req.user.id, req.params.movieId);
   res.json({ success: true });
 });
 
@@ -335,21 +394,30 @@ app.all("/api/*", (req, res) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
-    });
+    // In Vercel, static files are handled by vercel.json rewrites, 
+    // but we keep this for other production environments.
+    const distPath = path.join(__dirname, "dist");
+    app.use(express.static(distPath));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Only start the server if we're not in a serverless environment (like Vercel)
+  if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
-startServer();
+// Only call startServer if this is the main module
+if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV === 'development') {
+  startServer();
+}
+
+export default app;
