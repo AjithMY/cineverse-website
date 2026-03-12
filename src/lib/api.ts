@@ -4,14 +4,30 @@ const API_BASE = "/api";
 
 const apiFetch = async (url: string, options?: RequestInit) => {
   const res = await fetch(url, options);
+  const contentType = res.headers.get("content-type");
+  
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await res.text();
+    console.error(`Expected JSON but received ${contentType || 'nothing'}. Raw response:`, text.substring(0, 500));
+    
+    if (!res.ok) {
+      throw new Error(`HTTP Error ${res.status}: ${res.statusText}`);
+    }
+    throw new Error("Invalid JSON response from server (received HTML or text instead)");
+  }
+
   let data;
   try {
     data = await res.json();
   } catch (e) {
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    throw new Error("Invalid JSON response from server");
+    throw new Error("Failed to parse JSON response from server");
   }
-  if (!res.ok) throw new Error(data.error || data.status_message || "Something went wrong");
+  
+  if (!res.ok) {
+    throw new Error(data.error || data.status_message || `Request failed with status ${res.status}`);
+  }
+  
   return data;
 };
 
