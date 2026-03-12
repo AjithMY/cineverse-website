@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
