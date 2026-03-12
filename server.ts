@@ -52,7 +52,7 @@ db.exec(`
   );
 `);
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 
 // Logging middleware
