@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const apiKey = process.env.VITE_TMDB_API_KEY;
+  const apiKey = process.env.VITE_TMDB_API_KEY || process.env.TMDB_API_KEY;
   
   if (!apiKey) {
-    return res.status(500).json({ error: 'VITE_TMDB_API_KEY is not configured' });
+    return res.status(500).json({ error: 'TMDB API Key is not configured' });
   }
 
   const { timeWindow = 'week' } = req.query;
