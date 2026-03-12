@@ -197,9 +197,12 @@ app.patch("/api/auth/profile", authenticate, (req: any, res) => {
 });
 
 // TMDB Proxy
-app.get("/api/tmdb/:path(*)", async (req, res) => {
-  const endpoint = req.params.path;
+app.get("/api/tmdb/*", async (req, res) => {
+  const endpoint = req.params[0];
+  console.log(`[TMDB Proxy] Request for: ${endpoint}`);
+  
   if (!TMDB_API_KEY) {
+    console.error("[TMDB Proxy] API Key missing");
     return res.status(500).json({ error: "TMDB API Key is not configured in environment variables." });
   }
 
@@ -304,7 +307,8 @@ app.delete("/api/watchlist/:movieId", authenticate, (req: any, res) => {
 });
 
 // API 404 Handler - Prevent falling through to SPA fallback for API routes
-app.use("/api/*", (req, res) => {
+app.all("/api/*", (req, res) => {
+  console.log(`[API 404] Not Found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
 });
 
