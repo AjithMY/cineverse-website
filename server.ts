@@ -90,7 +90,7 @@ const apiLimiter = rateLimit({
 
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
-app.use("/api/", apiLimiter);
+app.use("/api", apiLimiter);
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret";
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "fallback-secret") {
@@ -197,42 +197,51 @@ app.patch("/api/auth/profile", authenticate, (req: any, res) => {
 });
 
 // TMDB Proxy
-app.get("/api/tmdb/*", async (req, res) => {
-  let endpoint = req.params[0];
+app.get("/api/tmdb/:path(*)", async (req, res) => {
+  const endpoint = req.params.path;
   if (!TMDB_API_KEY) {
     return res.status(500).json({ error: "TMDB API Key is not configured in environment variables." });
   }
 
   const queryParams = new URLSearchParams(req.query as any);
   
-  // Handle the "clean" routes I introduced for Vercel
+  // Map our clean endpoints to TMDB endpoints
+  let tmdbEndpoint = endpoint;
   if (endpoint === "trending") {
     const timeWindow = queryParams.get("timeWindow") || "week";
-    endpoint = `trending/movie/${timeWindow}`;
+    tmdbEndpoint = `trending/movie/${timeWindow}`;
     queryParams.delete("timeWindow");
   } else if (endpoint === "popular") {
-    endpoint = "movie/popular";
+    tmdbEndpoint = "movie/popular";
   } else if (endpoint === "top-rated") {
-    endpoint = "movie/top_rated";
+    tmdbEndpoint = "movie/top_rated";
   } else if (endpoint === "upcoming") {
-    endpoint = "movie/upcoming";
+    tmdbEndpoint = "movie/upcoming";
   } else if (endpoint === "discover") {
-    endpoint = "discover/movie";
+    tmdbEndpoint = "discover/movie";
   }
 
   queryParams.set("api_key", TMDB_API_KEY);
   
-  const cacheKey = `${endpoint}?${queryParams.toString()}`;
+  const cacheKey = `${tmdbEndpoint}?${queryParams.toString()}`;
   const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return res.json(cached.data);
   }
 
-  const url = `https://api.themoviedb.org/3/${endpoint}?${queryParams.toString()}`;
+  const url = `https://api.themoviedb.org/3/${tmdbEndpoint}?${queryParams.toString()}`;
 
   try {
     const response = await fetch(url);
+    const contentType = response.headers.get("content-type");
+    
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error(`TMDB returned non-JSON (${contentType}):`, text.substring(0, 200));
+      return res.status(502).json({ error: "Invalid response from TMDB API" });
+    }
+
     const data = await response.json();
     
     if (!response.ok) {
@@ -292,6 +301,11 @@ app.post("/api/watchlist", authenticate, (req: any, res) => {
 app.delete("/api/watchlist/:movieId", authenticate, (req: any, res) => {
   db.prepare("DELETE FROM watchlist WHERE userId = ? AND movieId = ?").run(req.user.id, req.params.movieId);
   res.json({ success: true });
+});
+
+// API 404 Handler - Prevent falling through to SPA fallback for API routes
+app.use("/api/*", (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
 });
 
 async function startServer() {
