@@ -3,32 +3,39 @@ import { User, Movie, Cast, Video, Review, WatchlistItem } from "../types";
 const API_BASE = typeof window !== 'undefined' ? window.location.origin + "/api" : "/api";
 
 const apiFetch = async (url: string, options?: RequestInit) => {
-  const res = await fetch(url, options);
-  const contentType = res.headers.get("content-type");
-  
-  if (!contentType || !contentType.includes("application/json")) {
-    const text = await res.text();
-    console.error(`Expected JSON but received ${contentType || 'nothing'}. Raw response:`, text.substring(0, 500));
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get("content-type");
     
     if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}: ${res.statusText}`);
+      let errorData;
+      if (contentType && contentType.includes("application/json")) {
+        errorData = await res.json();
+      } else {
+        const text = await res.text();
+        console.error(`API Error ${res.status}: Received non-JSON response`, text.substring(0, 500));
+        throw new Error(`HTTP Error ${res.status}: ${res.statusText}`);
+      }
+      throw new Error(errorData.error || errorData.status_message || `Request failed with status ${res.status}`);
     }
-    throw new Error("Invalid JSON response from server (received HTML or text instead)");
-  }
 
-  let data;
-  try {
-    data = await res.json();
-  } catch (e) {
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    throw new Error("Failed to parse JSON response from server");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await res.text();
+      console.error(`Expected JSON but received ${contentType || 'nothing'}. Raw response start:`, text.substring(0, 200));
+      
+      // If it looks like HTML, it's likely the SPA fallback
+      if (text.trim().startsWith("<!doctype html>") || text.trim().startsWith("<html")) {
+        throw new Error("Server returned HTML instead of JSON. This usually means the API route is missing or being redirected to index.html.");
+      }
+      
+      throw new Error("Invalid JSON response from server");
+    }
+
+    return await res.json();
+  } catch (error: any) {
+    console.error(`Fetch error for ${url}:`, error.message);
+    throw error;
   }
-  
-  if (!res.ok) {
-    throw new Error(data.error || data.status_message || `Request failed with status ${res.status}`);
-  }
-  
-  return data;
 };
 
 export const api = {

@@ -27,23 +27,39 @@ const MovieDetailPage = () => {
       if (!id) return;
       try {
         setLoading(true);
+        
+        // Helper to catch individual errors in Promise.all
+        const safeFetch = async (promise: Promise<any>) => {
+          try {
+            return await promise;
+          } catch (e) {
+            console.error("Individual fetch failed:", e);
+            return null;
+          }
+        };
+
         const [m, c, v, r] = await Promise.all([
-          api.getMovieDetails(id),
-          api.getMovieCredits(id),
-          api.getMovieVideos(id),
-          api.getReviews(Number(id))
+          safeFetch(api.getMovieDetails(id)),
+          safeFetch(api.getMovieCredits(id)),
+          safeFetch(api.getMovieVideos(id)),
+          safeFetch(api.getReviews(Number(id)))
         ]);
-        setMovie(m);
-        setCast(c.cast?.slice(0, 12) || []);
-        setVideos(v.results?.filter((v: any) => v.type === "Trailer" || v.type === "Teaser") || []);
-        setReviews(r || []);
+
+        if (m) setMovie(m);
+        if (c) setCast(c.cast?.slice(0, 12) || []);
+        if (v) setVideos(v.results?.filter((v: any) => v.type === "Trailer" || v.type === "Teaser") || []);
+        if (r) setReviews(r);
 
         if (user) {
-          const watchlist = await api.getWatchlist();
-          setInWatchlist(watchlist.some((item: any) => item.movieId === Number(id)));
+          try {
+            const watchlist = await api.getWatchlist();
+            setInWatchlist(watchlist.some((item: any) => item.movieId === Number(id)));
+          } catch (e) {
+            console.error("Watchlist fetch failed:", e);
+          }
         }
       } catch (err) {
-        console.error(err);
+        console.error("Critical fetch error:", err);
       } finally {
         setLoading(false);
       }

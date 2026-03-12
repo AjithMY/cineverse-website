@@ -65,6 +65,12 @@ app.get("/api/ping", (req, res) => {
   res.json({ pong: true, timestamp: new Date().toISOString() });
 });
 
+// Alias for direct movie calls as requested in user example
+app.get("/api/movie/:id", (req, res) => {
+  const { id } = req.params;
+  res.redirect(`/api/tmdb/movie/${id}`);
+});
+
 // TMDB Proxy - MOVED TO ABSOLUTE TOP
 app.use("/api/tmdb", async (req, res) => {
   // In app.use("/api/tmdb"), req.url is the part after /api/tmdb
@@ -184,6 +190,20 @@ const CACHE_TTL = 1000 * 60 * 10; // 10 minutes
 
 app.use(express.json());
 app.use(cookieParser());
+
+// Middleware to verify JWT
+const authenticate = (req: any, res: any, next: any) => {
+  const token = req.cookies.token;
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
 
 // Auth Routes
 app.post("/api/auth/register", async (req, res) => {
