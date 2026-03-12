@@ -1,6 +1,6 @@
 import { User, Movie, Cast, Video, Review, WatchlistItem } from "../types";
 
-const API_BASE = "/api";
+const API_BASE = typeof window !== 'undefined' ? window.location.origin + "/api" : "/api";
 
 const apiFetch = async (url: string, options?: RequestInit) => {
   const res = await fetch(url, options);

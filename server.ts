@@ -12,6 +12,9 @@ import { rateLimit } from "express-rate-limit";
 
 dotenv.config();
 
+console.log('--- CINEVERSE SERVER STARTING ---');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -52,10 +55,84 @@ db.exec(`
 const app = express();
 const PORT = 3000;
 
+// Logging middleware
+app.use((req, res, next) => {
+  console.log(`[Request] ${req.method} ${req.url}`);
+  next();
+});
+
+app.get("/api/ping", (req, res) => {
+  res.json({ pong: true, timestamp: new Date().toISOString() });
+});
+
+// TMDB Proxy - MOVED TO ABSOLUTE TOP
+app.use("/api/tmdb", async (req, res) => {
+  // In app.use("/api/tmdb"), req.url is the part after /api/tmdb
+  const endpoint = req.url.split('?')[0].replace(/^\//, '');
+  console.log(`[TMDB Proxy] Processing: ${endpoint} (Full URL: ${req.url})`);
+  
+  if (!TMDB_API_KEY) {
+    console.error("[TMDB Proxy] API Key missing");
+    return res.status(500).json({ error: "TMDB API Key is not configured in environment variables." });
+  }
+
+  const queryParams = new URLSearchParams(req.query as any);
+  
+  let tmdbEndpoint = endpoint;
+  if (endpoint === "trending") {
+    const timeWindow = queryParams.get("timeWindow") || "week";
+    tmdbEndpoint = `trending/movie/${timeWindow}`;
+    queryParams.delete("timeWindow");
+  } else if (endpoint === "popular") {
+    tmdbEndpoint = "movie/popular";
+  } else if (endpoint === "top-rated") {
+    tmdbEndpoint = "movie/top_rated";
+  } else if (endpoint === "upcoming") {
+    tmdbEndpoint = "movie/upcoming";
+  } else if (endpoint === "discover") {
+    tmdbEndpoint = "discover/movie";
+  }
+
+  queryParams.set("api_key", TMDB_API_KEY);
+  
+  const cacheKey = `${tmdbEndpoint}?${queryParams.toString()}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  const url = `https://api.themoviedb.org/3/${tmdbEndpoint}?${queryParams.toString()}`;
+
+  try {
+    const response = await fetch(url);
+    const contentType = response.headers.get("content-type");
+    
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error(`TMDB returned non-JSON (${contentType}):`, text.substring(0, 200));
+      return res.status(502).json({ error: "Invalid response from TMDB API" });
+    }
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+    
+    cache.set(cacheKey, { data, timestamp: Date.now() });
+    res.json(data);
+  } catch (err) {
+    console.error("TMDB Proxy Error:", err);
+    res.status(500).json({ error: "Failed to fetch from TMDB" });
+  }
+});
+
 // Trust proxy for rate limiting behind Nginx/Cloud Run
 app.set('trust proxy', 1);
 
-// Security Middleware
+// Security Middleware - DISABLED TEMPORARILY
+/*
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -71,8 +148,10 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   frameguard: false, // Disable X-Frame-Options to allow iframe embedding
 }));
+*/
 
-// Rate Limiting
+// Rate Limiting - DISABLED TEMPORARILY
+/*
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
@@ -91,6 +170,7 @@ const apiLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api", apiLimiter);
+*/
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret";
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "fallback-secret") {
@@ -104,20 +184,6 @@ const CACHE_TTL = 1000 * 60 * 10; // 10 minutes
 
 app.use(express.json());
 app.use(cookieParser());
-
-// Middleware to verify JWT
-const authenticate = (req: any, res: any, next: any) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
-  }
-};
 
 // Auth Routes
 app.post("/api/auth/register", async (req, res) => {
@@ -193,71 +259,6 @@ app.patch("/api/auth/profile", authenticate, (req: any, res) => {
     res.json({ user });
   } catch (err) {
     res.status(400).json({ error: "Failed to update profile" });
-  }
-});
-
-// TMDB Proxy
-app.get("/api/tmdb/*", async (req, res) => {
-  const endpoint = req.params[0];
-  console.log(`[TMDB Proxy] Request for: ${endpoint}`);
-  
-  if (!TMDB_API_KEY) {
-    console.error("[TMDB Proxy] API Key missing");
-    return res.status(500).json({ error: "TMDB API Key is not configured in environment variables." });
-  }
-
-  const queryParams = new URLSearchParams(req.query as any);
-  
-  // Map our clean endpoints to TMDB endpoints
-  let tmdbEndpoint = endpoint;
-  if (endpoint === "trending") {
-    const timeWindow = queryParams.get("timeWindow") || "week";
-    tmdbEndpoint = `trending/movie/${timeWindow}`;
-    queryParams.delete("timeWindow");
-  } else if (endpoint === "popular") {
-    tmdbEndpoint = "movie/popular";
-  } else if (endpoint === "top-rated") {
-    tmdbEndpoint = "movie/top_rated";
-  } else if (endpoint === "upcoming") {
-    tmdbEndpoint = "movie/upcoming";
-  } else if (endpoint === "discover") {
-    tmdbEndpoint = "discover/movie";
-  }
-
-  queryParams.set("api_key", TMDB_API_KEY);
-  
-  const cacheKey = `${tmdbEndpoint}?${queryParams.toString()}`;
-  const cached = cache.get(cacheKey);
-
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return res.json(cached.data);
-  }
-
-  const url = `https://api.themoviedb.org/3/${tmdbEndpoint}?${queryParams.toString()}`;
-
-  try {
-    const response = await fetch(url);
-    const contentType = response.headers.get("content-type");
-    
-    if (!contentType || !contentType.includes("application/json")) {
-      const text = await response.text();
-      console.error(`TMDB returned non-JSON (${contentType}):`, text.substring(0, 200));
-      return res.status(502).json({ error: "Invalid response from TMDB API" });
-    }
-
-    const data = await response.json();
-    
-    if (!response.ok) {
-      return res.status(response.status).json(data);
-    }
-    
-    // Cache the successful response
-    cache.set(cacheKey, { data, timestamp: Date.now() });
-    
-    res.json(data);
-  } catch (err) {
-    console.error("TMDB Proxy Error:", err);
-    res.status(500).json({ error: "Failed to fetch from TMDB" });
   }
 });
 
